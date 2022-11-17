@@ -29,7 +29,7 @@ type (
 	}
 	// A ReadTODOResponse expresses ...
 	ReadTODOResponse struct {
-		TODOS []*TODO `json:"todos"`
+		TODOs []*TODO `json:"todos"`
 	}
 
 	// A UpdateTODORequest expresses ...
@@ -45,7 +45,7 @@ type (
 
 	// A DeleteTODORequest expresses ...
 	DeleteTODORequest struct {
-		IDS []int64 `json:"ids"`
+		IDs []int64 `json:"ids"`
 	}
 	// A DeleteTODOResponse expresses ...
 	DeleteTODOResponse struct{}

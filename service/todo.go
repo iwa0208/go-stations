@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/TechBowl-japan/go-stations/model"
@@ -71,11 +73,12 @@ func (s *TODOService) ReadTODO(ctx context.Context, prevID, size int64) ([]*mode
 
 	var ttodo []*model.TODO //空行列
 
-	// sizeは存在しない場合は5に設定する。predIDが存在しないときはないものとみなす。
 	if size == 0 {
-		size = 5
+		return []*model.TODO{}, nil
 	}
-	if prevID == 0 {
+	if prevID == 1 {
+		return []*model.TODO{}, nil
+	} else if prevID == 0 { //ユーザが入力しなかった場合を仮定
 		rows, err := s.db.QueryContext(ctx, read, size)
 		if err != nil {
 			log.Fatal(err)
@@ -144,10 +147,10 @@ func (s *TODOService) UpdateTODO(ctx context.Context, id int64, subject, descrip
 	}
 	if rows == 0 {
 		// log.Fatalf("expected to affect 1 row, affected %d", rows)
-		err = &model.ErrNotFound{
+		err_notfound := model.ErrNotFound{
 			What: "対象のレコードはありませんでした。",
 		}
-		return nil, err
+		return nil, &err_notfound
 	}
 
 	var created, updated time.Time
@@ -166,13 +169,29 @@ func (s *TODOService) UpdateTODO(ctx context.Context, id int64, subject, descrip
 
 // DeleteTODO deletes TODOs on DB by ids.
 func (s *TODOService) DeleteTODO(ctx context.Context, ids []int64) error {
-	const deleteFmt = `DELETE FROM todos WHERE id IN (?)`
+	const deleteFmt = `DELETE FROM todos WHERE id IN (?%s)`
 
-	for _, id := range ids {
-		_, err := s.db.ExecContext(ctx, deleteFmt, id)
-		if err != nil {
-			return err
+	str := strings.Repeat(", ?", len(ids)-1)
+	deleteFmt_new := fmt.Sprintf(deleteFmt, str)
+
+	targets := []interface{}{}
+	for _, v := range ids {
+		targets = append(targets, v)
+	}
+	result, err := s.db.ExecContext(ctx, deleteFmt_new, targets...)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// log.Fatalf("expected to affect 1 row, affected %d", rows)
+		err_notfound := model.ErrNotFound{
+			What: "対象のレコードはありませんでした。",
 		}
+		return &err_notfound
 	}
 	return nil
 }
