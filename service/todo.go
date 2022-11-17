@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"database/sql"
+	"log"
+	"time"
 
 	"github.com/TechBowl-japan/go-stations/model"
 )
@@ -26,7 +28,38 @@ func (s *TODOService) CreateTODO(ctx context.Context, subject, description strin
 		confirm = `SELECT subject, description, created_at, updated_at FROM todos WHERE id = ?`
 	)
 
-	return nil, nil
+	// In normal use, create one Stmt when your process starts. 確認作業？
+	// stmt, err := s.db.PrepareContext(ctx, insert)
+	// if err != nil {
+	// 	// log.Printf(err.Error())
+	// 	return nil, err
+	// }
+	// defer stmt.Close()
+
+	result, err := s.db.ExecContext(ctx, insert, subject, description)
+	if err != nil {
+		// log.Printf(err.Error())
+		return nil, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		// log.Printf(err.Error())
+		return nil, err
+	}
+
+	var created, updated time.Time
+	err = s.db.QueryRowContext(ctx, confirm, id).Scan(&subject, &description, &created, &updated) // rowの形式で返ってくるものを 構造体todoに書き換えて返却する
+	if err != nil {
+		// log.Printf(err.Error())
+		return nil, err
+	}
+	return &model.TODO{
+		ID:          int64(id),
+		Subject:     subject,
+		Description: description,
+		CreatedAt:   created,
+		UpdatedAt:   updated,
+	}, nil
 }
 
 // ReadTODO reads TODOs on DB.
@@ -36,7 +69,62 @@ func (s *TODOService) ReadTODO(ctx context.Context, prevID, size int64) ([]*mode
 		readWithID = `SELECT id, subject, description, created_at, updated_at FROM todos WHERE id < ? ORDER BY id DESC LIMIT ?`
 	)
 
-	return nil, nil
+	var ttodo []*model.TODO //空行列
+
+	// sizeは存在しない場合は5に設定する。predIDが存在しないときはないものとみなす。
+	if size == 0 {
+		size = 5
+	}
+	if prevID == 0 {
+		rows, err := s.db.QueryContext(ctx, read, size)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id int
+			var subject, description string
+			var created, updated time.Time
+			if err := rows.Scan(&id, &subject, &description, &created, &updated); err != nil {
+				// Check for a scan error.
+				// Query rows will be closed with defer.
+				log.Fatal(err)
+			}
+			ttodo = append(ttodo, &model.TODO{
+				ID:          int64(id),
+				Subject:     subject,
+				Description: description,
+				CreatedAt:   created,
+				UpdatedAt:   updated,
+			})
+		}
+	} else {
+		rows, err := s.db.QueryContext(ctx, readWithID, prevID, size)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int
+			var subject, description string
+			var created, updated time.Time
+			if err := rows.Scan(&id, &subject, &description, &created, &updated); err != nil {
+				// Check for a scan error.
+				// Query rows will be closed with defer.
+				log.Fatal(err)
+			}
+			ttodo = append(ttodo, &model.TODO{
+				ID:          int64(id),
+				Subject:     subject,
+				Description: description,
+				CreatedAt:   created,
+				UpdatedAt:   updated,
+			})
+		}
+	}
+
+	return ttodo, nil
 }
 
 // UpdateTODO updates the TODO on DB.
@@ -46,12 +134,45 @@ func (s *TODOService) UpdateTODO(ctx context.Context, id int64, subject, descrip
 		confirm = `SELECT subject, description, created_at, updated_at FROM todos WHERE id = ?`
 	)
 
-	return nil, nil
+	result, err := s.db.ExecContext(ctx, update, subject, description, id)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 {
+		// log.Fatalf("expected to affect 1 row, affected %d", rows)
+		err = &model.ErrNotFound{
+			What: "対象のレコードはありませんでした。",
+		}
+		return nil, err
+	}
+
+	var created, updated time.Time
+	err = s.db.QueryRowContext(ctx, confirm, id).Scan(&subject, &description, &created, &updated) // rowの形式で返ってくるものを 構造体todoに書き換えて返却する
+	if err != nil {
+		return nil, err
+	}
+	return &model.TODO{
+		ID:          int64(id),
+		Subject:     subject,
+		Description: description,
+		CreatedAt:   created,
+		UpdatedAt:   updated,
+	}, nil
 }
 
 // DeleteTODO deletes TODOs on DB by ids.
 func (s *TODOService) DeleteTODO(ctx context.Context, ids []int64) error {
-	const deleteFmt = `DELETE FROM todos WHERE id IN (?%s)`
+	const deleteFmt = `DELETE FROM todos WHERE id IN (?)`
 
+	for _, id := range ids {
+		_, err := s.db.ExecContext(ctx, deleteFmt, id)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
